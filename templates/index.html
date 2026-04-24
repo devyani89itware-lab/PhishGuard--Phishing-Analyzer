@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhishGuard — AI Email Analyzer</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg:        #060812;
+            --s1:        #0d1326;
+            --s2:        #0a0f1e;
+            --s3:        #111827;
+            --b1:        rgba(99,102,241,.14);
+            --b2:        rgba(99,102,241,.26);
+            --indigo:    #6366f1;
+            --indigo-d:  rgba(99,102,241,.12);
+            --red:       #ef4444;
+            --red-d:     rgba(239,68,68,.12);
+            --red-glow:  rgba(239,68,68,.3);
+            --green:     #10b981;
+            --green-d:   rgba(16,185,129,.12);
+            --green-glow:rgba(16,185,129,.25);
+            --cyan:      #06b6d4;
+            --cyan-d:    rgba(6,182,212,.1);
+            --orange:    #f97316;
+            --text:      #8892a4;
+            --textb:     #e2e8f0;
+            --textd:     #3d4a5c;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        /* Ambient background glows */
+        body::before {
+            content: '';
+            position: fixed; inset: 0; z-index: 0; pointer-events: none;
+            background:
+                radial-gradient(ellipse 70% 60% at 0% 70%, rgba(99,102,241,.07) 0%, transparent 70%),
+                radial-gradient(ellipse 50% 50% at 100% 10%, rgba(239,68,68,.05) 0%, transparent 60%),
+                radial-gradient(ellipse 40% 40% at 55% 100%, rgba(6,182,212,.04) 0%, transparent 60%);
+        }
+        /* Dot grid */
+        body::after {
+            content: '';
+            position: fixed; inset: 0; z-index: 0; pointer-events: none;
+            background-image: radial-gradient(rgba(255,255,255,.025) 1px, transparent 1px);
+            background-size: 28px 28px;
+        }
+
+        /* ─── NAV ─── */
+        nav {
+            position: relative; z-index: 10;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 32px;
+            border-bottom: 1px solid var(--b1);
+            background: rgba(6,8,18,.7);
+            backdrop-filter: blur(16px);
+        }
+        .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+        .brand-icon {
+            width: 34px; height: 34px; border-radius: 8px;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 17px; box-shadow: 0 0 16px rgba(239,68,68,.35);
+        }
+        .brand-name { font-size: 16px; font-weight: 700; color: var(--textb); letter-spacing: -.3px; }
+        .brand-name span { color: var(--red); }
+        .nav-badge {
+            font-size: 10px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase;
+            color: var(--indigo); background: var(--indigo-d);
+            border: 1px solid rgba(99,102,241,.25); border-radius: 20px; padding: 3px 10px;
+        }
+
+        /* ─── HERO ─── */
+        .hero {
+            position: relative; z-index: 10;
+            text-align: center; padding: 48px 20px 36px;
+        }
+        .hero-eyebrow {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
+            color: var(--indigo); background: var(--indigo-d);
+            border: 1px solid rgba(99,102,241,.2); border-radius: 20px;
+            padding: 4px 14px; margin-bottom: 20px;
+        }
+        .hero-eyebrow::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--indigo); animation: dotPulse 1.5s ease-in-out infinite; }
+        @keyframes dotPulse { 0%,100%{transform:scale(1);opacity:.7} 50%{transform:scale(1.6);opacity:1} }
+
+        .hero h1 {
+            font-size: 42px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.1;
+            background: linear-gradient(135deg, #ef4444 0%, #f97316 40%, #e2e8f0 70%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+            margin-bottom: 14px;
+        }
+        .hero p { color: var(--text); font-size: 15px; max-width: 520px; margin: 0 auto; line-height: 1.7; }
+        .hero p code {
+            background: var(--s3); color: var(--cyan);
+            border: 1px solid rgba(6,182,212,.2); border-radius: 5px; padding: 1px 7px; font-size: 13px;
+        }
+
+        /* ─── LAYOUT ─── */
+        .page { position: relative; z-index: 10; display: flex; gap: 18px; max-width: 1280px; margin: 0 auto; padding: 0 24px 60px; }
+        .col-left  { width: 272px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; }
+        .col-right { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+
+        /* ─── CARDS ─── */
+        .card {
+            background: rgba(13,19,38,.85);
+            border: 1px solid var(--b1); border-radius: 16px;
+            padding: 20px; backdrop-filter: blur(12px);
+            transition: border-color .25s, box-shadow .25s;
+        }
+        .card:hover { border-color: var(--b2); box-shadow: 0 0 40px rgba(99,102,241,.06); }
+
+        .card-label {
+            font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.8px;
+            color: var(--indigo); margin-bottom: 16px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .card-label::after { content:''; flex:1; height:1px; background: var(--b1); }
+
+        /* ─── EMAIL CLIENT GUIDE ─── */
+        select.client-select {
+            width: 100%; padding: 9px 12px;
+            background: var(--s2); border: 1px solid var(--b1); border-radius: 9px;
+            color: var(--textb); font-size: 12px; cursor: pointer; outline: none;
+            transition: border-color .2s;
+        }
+        select.client-select:focus { border-color: var(--indigo); }
+        select.client-select option { background: var(--s1); }
+
+        .instructions { display: none; margin-top: 12px; }
+        .instructions.active { display: block; }
+        .inst-title { font-size: 12px; color: var(--textb); font-weight: 600; margin-bottom: 10px; }
+
+        .step { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 9px; }
+        .snum {
+            width: 18px; height: 18px; flex-shrink: 0; border-radius: 50%;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; font-weight: 800; color: white;
+            box-shadow: 0 0 8px var(--red-glow);
+        }
+        .stxt { font-size: 12px; color: var(--text); line-height: 1.55; }
+        .stxt code {
+            background: var(--s3); color: var(--cyan);
+            border: 1px solid rgba(6,182,212,.18); border-radius: 4px;
+            padding: 0 5px; font-size: 11px;
+        }
+
+        /* ─── HISTORY ─── */
+        .hist-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+        .hist-clear {
+            font-size: 10px; color: var(--textd); background: none;
+            border: 1px solid var(--b1); border-radius: 5px; padding: 3px 8px; cursor: pointer;
+            transition: all .2s;
+        }
+        .hist-clear:hover { color: var(--red); border-color: rgba(239,68,68,.3); }
+
+        .hist-item {
+            border-left: 3px solid var(--b1); padding: 9px 12px;
+            background: var(--s2); border-radius: 0 8px 8px 0; margin-bottom: 8px;
+            transition: border-color .2s;
+        }
+        .hist-item.phishing { border-left-color: var(--red); }
+        .hist-item.legit    { border-left-color: var(--green); }
+        .hist-item:hover { background: var(--s3); }
+        .hv { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+        .hv.phishing { color: var(--red); }
+        .hv.legit    { color: var(--green); }
+        .hm { font-size: 11px; color: var(--textd); line-height: 1.7; }
+        .hm b { color: var(--text); }
+        .hs { display: flex; gap: 12px; margin-top: 5px; font-size: 11px; color: var(--textd); }
+        .hs span { color: var(--textb); font-weight: 600; }
+        .no-hist { font-size: 12px; color: var(--textd); text-align: center; padding: 14px 0; }
+
+        /* ─── FORM ─── */
+        .field-label {
+            font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px;
+            color: var(--text); margin-bottom: 8px; display: flex; align-items: center; gap: 7px;
+        }
+        .opt-tag {
+            font-weight: 500; font-size: 10px; color: var(--textd);
+            background: var(--s3); border: 1px solid var(--b1); border-radius: 20px;
+            padding: 1px 8px; text-transform: none; letter-spacing: 0;
+        }
+        .req-star { color: var(--red); }
+        .fg { margin-bottom: 18px; }
+
+        textarea {
+            width: 100%; padding: 11px 14px; font-size: 12px; line-height: 1.65;
+            background: var(--s2); border: 1px solid var(--b1); border-radius: 10px;
+            color: var(--textb); font-family: 'SF Mono','Fira Code','Courier New',monospace;
+            resize: vertical; outline: none; transition: border-color .2s, box-shadow .2s;
+        }
+        textarea:focus { border-color: rgba(99,102,241,.45); box-shadow: 0 0 0 3px rgba(99,102,241,.08); }
+        textarea::placeholder { color: var(--textd); line-height: 1.65; }
+        .ht { height: 148px; }
+        .bt { height: 118px; }
+        .field-hint { font-size: 11px; color: var(--textd); margin-top: 6px; }
+
+        /* ─── UPLOAD BOXES ─── */
+        .upload-row { display: flex; gap: 10px; margin-bottom: 4px; }
+        .ubox {
+            flex: 1; position: relative; overflow: hidden;
+            border: 1px dashed rgba(99,102,241,.25); border-radius: 10px;
+            padding: 16px 10px; text-align: center; cursor: pointer;
+            background: rgba(99,102,241,.04); transition: all .22s;
+        }
+        .ubox:hover { border-color: rgba(99,102,241,.5); background: rgba(99,102,241,.08); }
+        .ubox input[type=file] { position: absolute; inset:0; opacity:0; cursor:pointer; z-index:2; }
+        .ubox-icon { font-size: 22px; line-height: 1; }
+        .ubox-label { font-size: 12px; font-weight: 700; color: var(--textb); margin: 6px 0 3px; }
+        .ubox-sub   { font-size: 10px; color: var(--textd); }
+        .ubox.filled { border-color: rgba(16,185,129,.4); background: rgba(16,185,129,.06); border-style: solid; }
+        .ubox.filled .ubox-label { color: var(--green); }
+
+        /* ─── UPLOAD GUIDE DROPDOWNS ─── */
+        .guide-row { display: flex; gap: 10px; margin-bottom: 18px; }
+        .guide-wrap { flex: 1; }
+        .guide-btn {
+            width: 100%; display: flex; align-items: center; justify-content: space-between;
+            background: rgba(99,102,241,.06); border: 1px solid rgba(99,102,241,.15); border-radius: 8px;
+            padding: 9px 13px; cursor: pointer; transition: all .2s; outline: none;
+        }
+        .guide-btn:hover { background: rgba(99,102,241,.11); border-color: rgba(99,102,241,.3); }
+        .guide-btn.open  { border-radius: 8px 8px 0 0; border-color: rgba(99,102,241,.3); background: rgba(99,102,241,.1); }
+        .guide-btn-inner { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; color: var(--text); }
+        .guide-btn-inner span { font-size: 14px; }
+        .guide-chevron { font-size: 11px; color: var(--indigo); transition: transform .25s; }
+        .guide-btn.open .guide-chevron { transform: rotate(90deg); }
+        .guide-content {
+            display: none; border: 1px solid rgba(99,102,241,.2); border-top: none;
+            border-radius: 0 0 8px 8px; background: rgba(6,8,18,.6); padding: 14px;
+            animation: slideDown .2s ease;
+        }
+        @keyframes slideDown { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+
+        .guide-client { margin-bottom: 13px; }
+        .guide-client:last-child { margin-bottom: 0; }
+        .guide-client-name {
+            font-size: 11px; font-weight: 700; color: var(--indigo); margin-bottom: 7px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .guide-client-name::after { content:''; flex:1; height:1px; background: rgba(99,102,241,.15); }
+        .guide-step { display: flex; gap: 8px; margin-bottom: 6px; align-items: flex-start; }
+        .gnum {
+            width: 16px; height: 16px; flex-shrink: 0; border-radius: 50%;
+            background: var(--s3); border: 1px solid var(--b2);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 9px; font-weight: 700; color: var(--indigo);
+        }
+        .gtxt { font-size: 11px; color: var(--text); line-height: 1.55; }
+        .gtxt code {
+            background: var(--s3); color: var(--cyan);
+            border: 1px solid rgba(6,182,212,.15); border-radius: 3px;
+            padding: 0 4px; font-size: 10px;
+        }
+        .guide-note {
+            margin-top: 8px; padding: 8px 10px; border-radius: 6px;
+            background: rgba(6,182,212,.07); border: 1px solid rgba(6,182,212,.15);
+            font-size: 11px; color: var(--text); line-height: 1.5;
+        }
+        .guide-note b { color: var(--cyan); }
+
+        /* ─── PRIVACY NOTICE ─── */
+        .privacy-notice {
+            font-size: 11px; color: var(--textd); line-height: 1.6;
+            background: rgba(99,102,241,.05); border: 1px solid rgba(99,102,241,.12);
+            border-radius: 8px; padding: 10px 13px; margin-bottom: 12px;
+        }
+        .privacy-notice strong { color: var(--text); }
+
+        /* ─── SUBMIT ─── */
+        .submit-btn {
+            width: 100%; padding: 13px;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white; border: none; border-radius: 10px; cursor: pointer;
+            font-size: 14px; font-weight: 700; letter-spacing: .4px;
+            transition: all .2s; box-shadow: 0 4px 24px var(--red-glow);
+            position: relative; overflow: hidden;
+        }
+        .submit-btn::before {
+            content:''; position:absolute; inset:0;
+            background: linear-gradient(135deg, rgba(255,255,255,.12), transparent);
+        }
+        .submit-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 32px var(--red-glow); }
+        .submit-btn:active { transform: translateY(0); }
+        .submit-btn:disabled { background: #1e2232; color: var(--textd); box-shadow: none; transform: none; cursor: not-allowed; }
+
+        /* ─── ERROR ─── */
+        .err-box {
+            margin-top: 14px; padding: 12px 14px; border-radius: 9px;
+            background: var(--red-d); border: 1px solid rgba(239,68,68,.3); color: var(--red); font-size: 13px;
+        }
+
+        /* ─── HEADER GRID ─── */
+        .hgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .hi {
+            background: var(--s2); border: 1px solid var(--b1); border-radius: 9px; padding: 10px 13px;
+            transition: border-color .2s;
+        }
+        .hi:hover { border-color: var(--b2); }
+        .fn { font-size: 10px; color: var(--textd); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
+        .fv { font-size: 12px; color: var(--textb); font-weight: 600; word-break: break-all; }
+        .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+        .bp { background: var(--green-d); color: var(--green); border: 1px solid rgba(16,185,129,.25); }
+        .bf { background: var(--red-d);   color: var(--red);   border: 1px solid rgba(239,68,68,.25); }
+        .bu { background: var(--s3);      color: var(--textd); border: 1px solid var(--b1); }
+
+        /* ─── URL CHIPS ─── */
+        .url-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+        .uchip {
+            background: rgba(249,115,22,.07); border: 1px solid rgba(249,115,22,.2);
+            color: var(--orange); border-radius: 5px; padding: 3px 9px;
+            font-size: 11px; font-family: 'SF Mono','Fira Code','Courier New',monospace;
+            word-break: break-all; transition: background .2s;
+        }
+        .uchip:hover { background: rgba(249,115,22,.13); }
+        .uchip.sus { background: var(--red-d); border-color: rgba(239,68,68,.3); color: var(--red); }
+        .uchip.sus::before { content: '⚠ '; }
+
+        /* ─── SUMMARY BAR ─── */
+        .sbar {
+            border-radius: 14px; padding: 22px 26px;
+            display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+            border: 1px solid rgba(239,68,68,.3);
+            background: linear-gradient(135deg, rgba(239,68,68,.07) 0%, rgba(13,19,38,.9) 60%);
+            box-shadow: 0 0 60px rgba(239,68,68,.07);
+        }
+        .sbar.legit {
+            border-color: rgba(16,185,129,.3);
+            background: linear-gradient(135deg, rgba(16,185,129,.07) 0%, rgba(13,19,38,.9) 60%);
+            box-shadow: 0 0 60px rgba(16,185,129,.07);
+        }
+        .vbadge {
+            font-size: 16px; font-weight: 800; padding: 10px 22px; border-radius: 30px;
+            letter-spacing: .5px;
+            background: var(--red-d); color: var(--red); border: 1px solid rgba(239,68,68,.3);
+            box-shadow: 0 0 24px rgba(239,68,68,.2);
+        }
+        .vbadge.legit {
+            background: var(--green-d); color: var(--green); border-color: rgba(16,185,129,.3);
+            box-shadow: 0 0 24px rgba(16,185,129,.2);
+        }
+        .sstats { display: flex; gap: 28px; }
+        .sstat { text-align: center; }
+        .sval { font-size: 28px; font-weight: 800; color: var(--textb); }
+        .slbl { font-size: 10px; color: var(--textd); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 3px; }
+
+        /* ─── RESULT TABS ─── */
+        .tab-nav { display: flex; gap: 4px; margin-bottom: -1px; }
+        .tbtn {
+            padding: 9px 18px; font-size: 12px; font-weight: 700; letter-spacing: .3px;
+            border: 1px solid var(--b1); border-bottom: none; border-radius: 9px 9px 0 0;
+            background: rgba(13,19,38,.6); color: var(--textd); cursor: pointer; transition: all .2s;
+        }
+        .tbtn:hover { color: var(--text); }
+        .tbtn.on { background: rgba(13,19,38,.95); color: var(--indigo); border-color: rgba(99,102,241,.3); }
+        .tc {
+            display: none; background: rgba(13,19,38,.95); padding: 24px;
+            border: 1px solid rgba(99,102,241,.2); border-radius: 0 10px 10px 10px;
+        }
+        .tc.on { display: block; }
+
+        /* Markdown dark */
+        .tc h2 { color: var(--textb); font-size: 14px; font-weight: 700; border-bottom: 1px solid var(--b1); padding-bottom: 8px; margin: 20px 0 10px; }
+        .tc h3 { color: var(--cyan); font-size: 13px; margin: 15px 0 7px; }
+        .tc h4 { color: var(--text); font-size: 12px; margin: 12px 0 5px; }
+        .tc p  { font-size: 13px; color: var(--text); line-height: 1.75; margin-bottom: 10px; }
+        .tc ul,.tc ol { padding-left: 20px; margin-bottom: 10px; }
+        .tc li { font-size: 13px; color: var(--text); line-height: 1.75; margin-bottom: 3px; }
+        .tc strong { color: var(--textb); }
+        .tc em { color: var(--orange); font-style: normal; }
+        .tc code { background: var(--s3); color: var(--cyan); border: 1px solid var(--b1); padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+        .tc hr { border: none; border-top: 1px solid var(--b1); margin: 16px 0; }
+        .tc table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 10px 0; }
+        .tc table th { background: var(--s3); color: var(--textb); padding: 8px 12px; border: 1px solid var(--b1); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+        .tc table td { padding: 7px 12px; border: 1px solid var(--b1); color: var(--text); }
+        .tc table tr:nth-child(even) td { background: var(--s2); }
+
+        .scursor { display: inline-block; width: 2px; height: 14px; background: var(--indigo); box-shadow: 0 0 6px var(--indigo); animation: blink .7s steps(1) infinite; vertical-align: text-bottom; margin-left: 2px; }
+        @keyframes blink { 50%{opacity:0} }
+
+        /* ─── LOADING OVERLAY ─── */
+        #overlay {
+            display: none; position: fixed; inset: 0; z-index: 9999;
+            background: rgba(4,6,14,.94); backdrop-filter: blur(8px);
+            flex-direction: column; align-items: center; justify-content: center; gap: 24px;
+        }
+        .ov-scanlines {
+            position: absolute; inset: 0; pointer-events: none;
+            background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(99,102,241,.012) 2px, rgba(99,102,241,.012) 4px);
+        }
+        .ov-title {
+            font-size: 11px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase;
+            color: var(--textd);
+        }
+        .ov-title span { color: var(--indigo); }
+
+        /* Ring spinner */
+        .spinner-wrap { position: relative; width: 80px; height: 80px; }
+        .ring {
+            position: absolute; inset: 0; border-radius: 50%;
+            border: 2px solid transparent;
+        }
+        .ring-1 { border-top-color: var(--red); animation: spin 1.2s linear infinite; }
+        .ring-2 { inset: 10px; border-top-color: var(--indigo); animation: spin 1.8s linear infinite reverse; }
+        .ring-3 { inset: 20px; border-top-color: var(--cyan); animation: spin 2.4s linear infinite; }
+        .ring-dot { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .ov-msg { font-family: 'SF Mono','Fira Code','Courier New',monospace; font-size: 12px; color: var(--indigo); min-height: 18px; }
+        .ov-msg::before { content: '▶ '; color: var(--textd); }
+
+        .ov-steps { display: flex; flex-direction: column; gap: 8px; }
+        .lstep { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--textd); transition: color .3s; }
+        .lstep.on  { color: var(--textb); }
+        .lstep.done{ color: var(--green); }
+        .ldot { width: 7px; height: 7px; border-radius: 50%; background: var(--textd); flex-shrink: 0; transition: all .3s; }
+        .lstep.on   .ldot { background: var(--indigo); box-shadow: 0 0 8px var(--indigo); animation: dotPulse .9s ease-in-out infinite; }
+        .lstep.done .ldot { background: var(--green); box-shadow: 0 0 6px var(--green); animation: none; }
+
+        /* ─── SCROLLBAR ─── */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: var(--s1); }
+        ::-webkit-scrollbar-thumb { background: var(--b2); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--indigo); }
+    </style>
+</head>
+<body>
+
+<!-- LOADING OVERLAY -->
+<div id="overlay">
+    <div class="ov-scanlines"></div>
+    <div class="ov-title">Threat <span>Analysis</span> Running</div>
+    <div class="spinner-wrap">
+        <div class="ring ring-1"></div>
+        <div class="ring ring-2"></div>
+        <div class="ring ring-3"></div>
+        <div class="ring-dot">🎣</div>
+    </div>
+    <div class="ov-msg" id="ov-msg">Initializing scanner</div>
+    <div class="ov-steps">
+        <div class="lstep on"  id="ls1"><div class="ldot"></div> Parsing email headers</div>
+        <div class="lstep"     id="ls2"><div class="ldot"></div> Running AI threat analysis</div>
+        <div class="lstep"     id="ls3"><div class="ldot"></div> Expert verification pass</div>
+        <div class="lstep"     id="ls4"><div class="ldot"></div> Compiling threat report</div>
+    </div>
+</div>
+
+<!-- NAV -->
+<nav>
+    <div class="brand">
+        <div class="brand-icon">🎣</div>
+        <div class="brand-name">Phish<span>Guard</span></div>
+    </div>
+    <div class="nav-badge">AI Powered</div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+    <div class="hero-eyebrow">Real-time Threat Detection</div>
+    <h1>Phishing Email Analyzer</h1>
+    <p>Paste raw headers &amp; body, or upload an <code>.eml</code> file. Claude analyzes every indicator and streams results instantly.</p>
+</div>
+
+<!-- PAGE BODY -->
+<div class="page">
+
+    <!-- LEFT COLUMN -->
+    <div class="col-left">
+
+        <div class="card">
+            <div class="card-label">Email Client Guide</div>
+            <select class="client-select" onchange="showInst(this.value)">
+                <option value="">Select your email app</option>
+                <option value="gmail">Gmail</option>
+                <option value="outlook">Outlook</option>
+                <option value="apple">Apple Mail</option>
+                <option value="yahoo">Yahoo Mail</option>
+                <option value="thunderbird">Thunderbird</option>
+            </select>
+
+            <div id="inst-gmail" class="instructions">
+                <div class="inst-title">Gmail — Copy Raw Header</div>
+                <div class="step"><div class="snum">1</div><div class="stxt">Open the suspicious email</div></div>
+                <div class="step"><div class="snum">2</div><div class="stxt">Click <code>⋮</code> → <code>Show original</code></div></div>
+                <div class="step"><div class="snum">3</div><div class="stxt">Copy everything from the top until the body starts</div></div>
+                <div class="step"><div class="snum">4</div><div class="stxt">Paste into <b style="color:var(--textb)">Raw Header</b> field</div></div>
+            </div>
+            <div id="inst-outlook" class="instructions">
+                <div class="inst-title">Outlook — Copy Raw Header</div>
+                <div class="step"><div class="snum">1</div><div class="stxt">Open the email</div></div>
+                <div class="step"><div class="snum">2</div><div class="stxt"><code>File</code> → <code>Properties</code></div></div>
+                <div class="step"><div class="snum">3</div><div class="stxt">Copy the <b style="color:var(--textb)">Internet headers</b> section</div></div>
+                <div class="step"><div class="snum">4</div><div class="stxt">Paste into Raw Header</div></div>
+            </div>
+            <div id="inst-apple" class="instructions">
+                <div class="inst-title">Apple Mail — Copy Raw Header</div>
+                <div class="step"><div class="snum">1</div><div class="stxt">Open the email</div></div>
+                <div class="step"><div class="snum">2</div><div class="stxt"><code>View</code> → <code>Message</code> → <code>All Headers</code></div></div>
+                <div class="step"><div class="snum">3</div><div class="stxt">Select all and copy</div></div>
+                <div class="step"><div class="snum">4</div><div class="stxt">Paste into Raw Header</div></div>
+            </div>
+            <div id="inst-yahoo" class="instructions">
+                <div class="inst-title">Yahoo Mail — Copy Raw Header</div>
+                <div class="step"><div class="snum">1</div><div class="stxt">Open the email</div></div>
+                <div class="step"><div class="snum">2</div><div class="stxt"><code>⋮</code> → <code>View Raw Message</code></div></div>
+                <div class="step"><div class="snum">3</div><div class="stxt">Copy headers above the body</div></div>
+                <div class="step"><div class="snum">4</div><div class="stxt">Paste into Raw Header</div></div>
+            </div>
+            <div id="inst-thunderbird" class="instructions">
+                <div class="inst-title">Thunderbird — Copy Raw Header</div>
+                <div class="step"><div class="snum">1</div><div class="stxt">Open the email</div></div>
+                <div class="step"><div class="snum">2</div><div class="stxt"><code>View</code> → <code>Headers</code> → <code>All</code></div></div>
+                <div class="step"><div class="snum">3</div><div class="stxt">Or press <code>Ctrl + U</code> for full source</div></div>
+                <div class="step"><div class="snum">4</div><div class="stxt">Paste into Raw Header</div></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="hist-row">
+                <div class="card-label" style="margin-bottom:0">Recent Scans</div>
+                <button class="hist-clear" onclick="clearHistory()">Clear</button>
+            </div>
+            <div id="hist-list"></div>
+        </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="col-right">
+        <div class="card">
+            <div class="card-label">Email Analysis Input</div>
+            <form id="aform">
+
+                <!-- Upload boxes -->
+                <div class="fg">
+                    <div class="field-label">File Upload <span class="opt-tag">optional</span></div>
+                    <div class="upload-row">
+                        <div class="ubox" id="eml-box">
+                            <input type="file" name="eml_file" accept=".eml" onchange="onFile(this,'eml-box','eml-sub','eml-lbl','Upload .eml File','Auto-fills header & body')">
+                            <div class="ubox-icon">📩</div>
+                            <div class="ubox-label" id="eml-lbl">Upload .eml File</div>
+                            <div class="ubox-sub"  id="eml-sub">Auto-fills header &amp; body</div>
+                        </div>
+                        <div class="ubox" id="att-box">
+                            <input type="file" name="attachment_file" accept=".txt,.html,.htm" onchange="onFile(this,'att-box','att-sub','att-lbl','Scan Attachment','.txt or .html files')">
+                            <div class="ubox-icon">📄</div>
+                            <div class="ubox-label" id="att-lbl">Scan Attachment</div>
+                            <div class="ubox-sub"  id="att-sub">.txt or .html files</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upload guide dropdowns -->
+                <div class="guide-row">
+                    <!-- .eml guide -->
+                    <div class="guide-wrap">
+                        <button type="button" class="guide-btn" id="gbtn-eml" onclick="toggleGuide('gc-eml','gbtn-eml')">
+                            <div class="guide-btn-inner"><span>📩</span> How to upload a .eml file</div>
+                            <span class="guide-chevron">›</span>
+                        </button>
+                        <div class="guide-content" id="gc-eml">
+                            <div class="guide-client">
+                                <div class="guide-client-name">Gmail</div>
+                                <div class="guide-step"><div class="gnum">1</div><div class="gtxt">Open the email you want to analyze</div></div>
+                                <div class="guide-step"><div class="gnum">2</div><div class="gtxt">Click <code>⋮</code> → <code>Download message</code></div></div>
+                                <div class="guide-step"><div class="gnum">3</div><div class="gtxt">This saves a <code>.eml</code> file to your device</div></div>
+                                <div class="guide-step"><div class="gnum">4</div><div class="gtxt">Click the upload box above and select the file</div></div>
+                            </div>
+                            <div class="guide-client">
+                                <div class="guide-client-name">Outlook</div>
+                                <div class="guide-step"><div class="gnum">1</div><div class="gtxt">Open the email</div></div>
+                                <div class="guide-step"><div class="gnum">2</div><div class="gtxt"><code>File</code> → <code>Save As</code> → choose <code>Outlook Message Format (.msg)</code> or drag the email to your desktop to get <code>.eml</code></div></div>
+                                <div class="guide-step"><div class="gnum">3</div><div class="gtxt">Upload the saved file using the box above</div></div>
+                            </div>
+                            <div class="guide-client">
+                                <div class="guide-client-name">Apple Mail</div>
+                                <div class="guide-step"><div class="gnum">1</div><div class="gtxt">Drag the email from Mail to your Desktop</div></div>
+                                <div class="guide-step"><div class="gnum">2</div><div class="gtxt">This creates a <code>.eml</code> file automatically</div></div>
+                                <div class="guide-step"><div class="gnum">3</div><div class="gtxt">Upload it using the box above</div></div>
+                            </div>
+                            <div class="guide-client">
+                                <div class="guide-client-name">Thunderbird</div>
+                                <div class="guide-step"><div class="gnum">1</div><div class="gtxt">Right-click the email in the message list</div></div>
+                                <div class="guide-step"><div class="gnum">2</div><div class="gtxt">Select <code>Save As</code> and save as <code>.eml</code></div></div>
+                                <div class="guide-step"><div class="gnum">3</div><div class="gtxt">Upload it using the box above</div></div>
+                            </div>
+                            <div class="guide-note"><b>Tip:</b> Uploading a .eml file is the easiest option — it automatically fills in both the raw header and email body for you.</div>
+                        </div>
+                    </div>
+
+                    <!-- Attachment guide -->
+                    <div class="guide-wrap">
+                        <button type="button" class="guide-btn" id="gbtn-att" onclick="toggleGuide('gc-att','gbtn-att')">
+                            <div class="guide-btn-inner"><span>📄</span> How to scan an attachment</div>
+                            <span class="guide-chevron">›</span>
+                        </button>
+                        <div class="guide-content" id="gc-att">
+                            <div class="guide-client">
+                                <div class="guide-client-name">What this does</div>
+                                <div class="guide-step"><div class="gnum">1</div><div class="gtxt">Extracts the text content from the file</div></div>
+                                <div class="guide-step"><div class="gnum">2</div><div class="gtxt">Sends it to Claude alongside the email analysis</div></div>
+                                <div class="guide-step"><div class="gnum">3</div><div class="gtxt">Claude checks for embedded links, credential harvesting, or malicious intent</div></div>
+                            </div>
+                            <div class="guide-client">
+                                <div class="guide-client-name">How to save an attachment</div>
+                                <div class="guide-step"><div class="gnum">1</div><div class="gtxt">Open the suspicious email</div></div>
+                                <div class="guide-step"><div class="gnum">2</div><div class="gtxt">Right-click the attachment → <code>Save As</code></div></div>
+                                <div class="guide-step"><div class="gnum">3</div><div class="gtxt">Save to a safe location (Downloads folder)</div></div>
+                                <div class="guide-step"><div class="gnum">4</div><div class="gtxt">Upload using the Scan Attachment box above</div></div>
+                            </div>
+                            <div class="guide-note"><b>Supported formats:</b> .txt and .html files. Do <b>not</b> open suspicious attachments directly — save and upload here instead.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="fg">
+                    <div class="field-label">Raw Email Header <span class="req-star">*</span></div>
+                    <textarea class="ht" name="raw_header" id="raw_header"
+                        placeholder="Paste the raw email header here...&#10;&#10;Example:&#10;Delivered-To: you@gmail.com&#10;From: PayPal Support &lt;support@paypa1.com&gt;&#10;Reply-To: attacker@gmail.com&#10;Subject: URGENT: Your account is suspended" required></textarea>
+                    <div class="field-hint">👈 Select your email app on the left for instructions, or upload a .eml file above.</div>
+                </div>
+
+                <div class="fg">
+                    <div class="field-label">Email Body <span class="opt-tag">optional</span></div>
+                    <textarea class="bt" name="email_body" id="email_body"
+                        placeholder="Paste the email body here (optional — headers alone are enough)...&#10;&#10;Any URLs found will be automatically extracted and analyzed."></textarea>
+                </div>
+
+                <div class="privacy-notice">
+                    🔒 <strong>Privacy notice:</strong> Email content you paste or upload is sent to
+                    Anthropic's API for analysis. Do not submit emails containing passwords,
+                    payment details, or confidential company data.
+                </div>
+                <button type="submit" class="submit-btn" id="sbtn">🔍 Analyze Email</button>
+            </form>
+            <div id="errbox" class="err-box" style="display:none"></div>
+        </div>
+
+        <!-- Parsed Header -->
+        <div class="card" id="hcard" style="display:none">
+            <div class="card-label">Parsed Header</div>
+            <div class="hgrid" id="hgrid"></div>
+        </div>
+
+        <!-- URLs -->
+        <div class="card" id="ucard" style="display:none">
+            <div class="card-label">Extracted URLs</div>
+            <div class="url-wrap" id="ulist"></div>
+        </div>
+
+        <!-- Summary -->
+        <div class="sbar" id="sbar" style="display:none">
+            <div class="vbadge" id="vbadge"></div>
+            <div class="sstats">
+                <div class="sstat"><div class="sval" id="sv-risk">—</div><div class="slbl">Risk Score</div></div>
+                <div class="sstat"><div class="sval" id="sv-conf">—</div><div class="slbl">Confidence</div></div>
+            </div>
+        </div>
+
+        <!-- Result Tabs -->
+        <div id="rtabs" style="display:none">
+            <div class="tab-nav">
+                <button class="tbtn on" onclick="showTab('tc-analysis',this)">🤖 Analysis</button>
+                <button class="tbtn"    onclick="showTab('tc-verify',this)">✅ Verification</button>
+            </div>
+            <div id="tc-analysis" class="tc on"><div id="ac"></div></div>
+            <div id="tc-verify"   class="tc"><div id="vc"></div></div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+/* ── Helpers ── */
+function esc(s)         { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function trunc(s,n)     { return s&&s.length>n ? s.slice(0,n)+'…' : (s||'—'); }
+
+/* ── Instruction panel ── */
+function showInst(v) {
+    document.querySelectorAll('.instructions').forEach(e=>e.classList.remove('active'));
+    if(v){const el=document.getElementById('inst-'+v);if(el)el.classList.add('active');}
+}
+
+/* ── Guide dropdowns ── */
+function toggleGuide(contentId, btnId) {
+    const content = document.getElementById(contentId);
+    const btn     = document.getElementById(btnId);
+    const isOpen  = content.style.display === 'block';
+    content.style.display = isOpen ? 'none' : 'block';
+    btn.classList.toggle('open', !isOpen);
+}
+
+/* ── Result tabs ── */
+function showTab(id, btn) {
+    document.querySelectorAll('.tc').forEach(t=>t.classList.remove('on'));
+    document.querySelectorAll('.tbtn').forEach(b=>b.classList.remove('on'));
+    document.getElementById(id).classList.add('on');
+    btn.classList.add('on');
+}
+
+/* ── File upload ── */
+function onFile(input, boxId, subId, lblId, defaultLbl, defaultSub) {
+    const box=document.getElementById(boxId), sub=document.getElementById(subId), lbl=document.getElementById(lblId);
+    if(input.files[0]){ box.classList.add('filled'); lbl.textContent=input.files[0].name; sub.textContent='Ready to scan'; }
+    else { box.classList.remove('filled'); lbl.textContent=defaultLbl; sub.textContent=defaultSub; }
+}
+
+/* ── Loader ── */
+const MSGS=['Initializing scanner','Parsing authentication records','Mapping sender reputation','Scanning for domain spoofing','Extracting URLs for analysis','Detecting social engineering','Running AI threat analysis','Executing expert review','Cross-checking indicators','Compiling threat report'];
+const STIMES=[600,2800,6500,10500];
+let ltimer=null;
+function startLoader(){
+    document.getElementById('overlay').style.display='flex';
+    for(let i=1;i<=4;i++){const s=document.getElementById('ls'+i);s.classList.remove('on','done');}
+    document.getElementById('ls1').classList.add('on');
+    let i=0; const el=document.getElementById('ov-msg');
+    el.textContent=MSGS[0];
+    ltimer=setInterval(()=>{i=(i+1)%MSGS.length;el.textContent=MSGS[i];},1900);
+    STIMES.forEach((t,idx)=>{
+        setTimeout(()=>{
+            if(idx>0){const p=document.getElementById('ls'+idx);if(p){p.classList.remove('on');p.classList.add('done');}}
+            const c=document.getElementById('ls'+(idx+1));if(c)c.classList.add('on');
+        },t);
+    });
+}
+function stopLoader(){ clearInterval(ltimer); document.getElementById('overlay').style.display='none'; }
+
+/* ── Auth badge ── */
+function badge(v){
+    if(v==='PASS') return `<span class="badge bp">✓ ${v}</span>`;
+    if(v==='FAIL') return `<span class="badge bf">✗ ${v}</span>`;
+    return `<span class="badge bu">? ${v}</span>`;
+}
+
+/* ── Render header ── */
+function renderHeader(d){
+    document.getElementById('hcard').style.display='';
+    document.getElementById('hgrid').innerHTML=`
+        <div class="hi"><div class="fn">Sender</div><div class="fv">${esc(d.sender)}</div></div>
+        <div class="hi"><div class="fn">Sender Domain</div><div class="fv">${esc(d.sender_domain)}</div></div>
+        <div class="hi"><div class="fn">Reply-To</div><div class="fv">${esc(d.reply_to)}</div></div>
+        <div class="hi"><div class="fn">Subject</div><div class="fv">${esc(d.subject)}</div></div>
+        <div class="hi"><div class="fn">SPF</div><div class="fv">${badge(d.spf)}</div></div>
+        <div class="hi"><div class="fn">DKIM</div><div class="fv">${badge(d.dkim)}</div></div>
+        <div class="hi"><div class="fn">DMARC</div><div class="fv">${badge(d.dmarc)}</div></div>
+        <div class="hi"><div class="fn">Date</div><div class="fv">${esc(d.date)}</div></div>`;
+}
+
+/* ── Render URLs ── */
+const SUSP=[/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/,/bit\.ly|tinyurl|t\.co|goo\.gl|ow\.ly/i,/\.xyz$|\.tk$|\.ml$|\.ga$|\.cf$/i];
+function isSusp(u){return SUSP.some(p=>p.test(u));}
+function renderUrls(urls){
+    const card=document.getElementById('ucard');
+    if(!urls||!urls.length){card.style.display='none';return;}
+    card.style.display='';
+    document.getElementById('ulist').innerHTML=urls.map(u=>`<span class="uchip ${isSusp(u)?'sus':''}" title="${esc(u)}">${esc(trunc(u,55))}</span>`).join('');
+}
+
+/* ── Split analysis ── */
+function split(text){
+    const p2=text.search(/##\s*PART\s*2/i);
+    if(p2===-1)return{a:text,v:''};
+    return{a:text.slice(0,p2),v:text.slice(p2)};
+}
+
+/* ── Main fetch ── */
+document.getElementById('aform').addEventListener('submit',async function(e){
+    e.preventDefault();
+    document.getElementById('errbox').style.display='none';
+    document.getElementById('hcard').style.display='none';
+    document.getElementById('ucard').style.display='none';
+    document.getElementById('sbar').style.display='none';
+    document.getElementById('rtabs').style.display='none';
+    document.getElementById('ac').innerHTML='';
+    document.getElementById('vc').innerHTML='';
+    document.getElementById('sbtn').disabled=true;
+    startLoader();
+
+    try{
+        const res=await fetch('/analyze',{method:'POST',body:new FormData(this)});
+        if(res.status===429){
+            stopLoader();
+            const eb=document.getElementById('errbox');
+            eb.textContent='⚠ Too many requests — please wait a moment before trying again.';
+            eb.style.display='';
+            document.getElementById('sbtn').disabled=false;
+            return;
+        }
+        if(res.status===413){
+            stopLoader();
+            const eb=document.getElementById('errbox');
+            eb.textContent='⚠ File too large. Maximum upload size is 2 MB.';
+            eb.style.display='';
+            document.getElementById('sbtn').disabled=false;
+            return;
+        }
+        const reader=res.body.getReader(), dec=new TextDecoder();
+        let buf='', full='';
+
+        while(true){
+            const{done,value}=await reader.read();
+            if(done)break;
+            buf+=dec.decode(value,{stream:true});
+            const lines=buf.split('\n'); buf=lines.pop();
+            for(const ln of lines){
+                if(!ln.trim())continue;
+                let m; try{m=JSON.parse(ln);}catch{continue;}
+
+                if(m.type==='error'){
+                    stopLoader();
+                    const eb=document.getElementById('errbox');
+                    eb.textContent='⚠ '+m.message; eb.style.display='';
+
+                }else if(m.type==='header'){
+                    stopLoader();
+                    renderHeader(m.data); renderUrls(m.urls);
+                    document.getElementById('rtabs').style.display='';
+                    document.getElementById('ac').innerHTML='<span class="scursor"></span>';
+
+                }else if(m.type==='chunk'){
+                    full+=m.text;
+                    const{a,v}=split(full);
+                    document.getElementById('ac').innerHTML=marked.parse(a)+'<span class="scursor"></span>';
+                    if(v)document.getElementById('vc').innerHTML=marked.parse(v)+'<span class="scursor"></span>';
+
+                }else if(m.type==='done'){
+                    const{a,v}=split(full);
+                    document.getElementById('ac').innerHTML=marked.parse(a);
+                    document.getElementById('vc').innerHTML=marked.parse(v||a);
+
+                    const ph=m.verdict.includes('PHISHING');
+                    const sb=document.getElementById('sbar');
+                    sb.style.display=''; sb.className='sbar'+(ph?'':' legit');
+                    const vb=document.getElementById('vbadge');
+                    vb.textContent=m.verdict; vb.className='vbadge'+(ph?'':' legit');
+                    document.getElementById('sv-risk').textContent=m.risk_score;
+                    document.getElementById('sv-conf').textContent=m.confidence;
+
+                    // Store only domain (not full sender address) to reduce PII in localStorage
+                    const senderDomain = m.sender.includes('@') ? m.sender.split('@').pop().replace(/>.*$/,'').trim() : m.sender;
+                    addHist({ts:new Date().toLocaleString(),subject:trunc(m.subject,40),sender:senderDomain,verdict:m.verdict,risk:m.risk_score,conf:m.confidence});
+                    renderHist();
+                }
+            }
+        }
+    }catch(err){
+        stopLoader();
+        const eb=document.getElementById('errbox');
+        eb.textContent='⚠ Network error: '+err.message; eb.style.display='';
+    }finally{
+        stopLoader();
+        document.getElementById('sbtn').disabled=false;
+    }
+});
+
+/* ── History ── */
+const HK='pg_history';
+function getH(){try{return JSON.parse(localStorage.getItem(HK))||[];}catch{return[];}}
+function setH(h){localStorage.setItem(HK,JSON.stringify(h));}
+function addHist(e){const h=getH();h.unshift(e);if(h.length>15)h.pop();setH(h);}
+function clearHistory(){if(confirm('Clear all scan history?')){setH([]);renderHist();}}
+function renderHist(){
+    const h=getH(), el=document.getElementById('hist-list');
+    if(!h.length){el.innerHTML='<div class="no-hist">No scans yet</div>';return;}
+    el.innerHTML=h.map(e=>{
+        const ph=e.verdict&&e.verdict.toUpperCase().includes('PHISHING');
+        return `<div class="hist-item ${ph?'phishing':'legit'}">
+            <div class="hv ${ph?'phishing':'legit'}">${esc(e.verdict)}</div>
+            <div class="hm">
+                <div><b>Subject:</b> ${esc(trunc(e.subject,27))}</div>
+                <div><b>Domain:</b> ${esc(trunc(e.sender,27))}</div>
+                <div>${esc(e.ts)}</div>
+            </div>
+            <div class="hs"><div>Risk <span>${esc(e.risk)}</span></div><div>Confidence <span>${esc(e.conf)}</span></div></div>
+        </div>`;
+    }).join('');
+}
+renderHist();
+</script>
+</body>
+</html>
