@@ -27,8 +27,8 @@ A cybersecurity tool that uses Claude (Anthropic) to analyze email headers and b
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/phishing-analyzer.git
-cd phishing-analyzer
+git clone https://github.com/devyani89itware-lab/PhishGuard--Phishing-Analyzer.git
+cd PhishGuard--Phishing-Analyzer
 ```
 
 ### 2. Create a virtual environment
