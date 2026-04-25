@@ -2,6 +2,17 @@
 
 A cybersecurity tool that uses Claude (Anthropic) to analyze email headers and bodies for phishing indicators in real time.
 
+## Screenshots
+
+![Dashboard](assets/screenshot-dashboard.png)
+*Main dashboard — email client guide, scan history, and input form*
+
+![Analysis](assets/screenshot-analysis.png)
+*Parsed header with SPF/DKIM/DMARC badges and streaming AI analysis*
+
+![Verification](assets/screenshot-verification.png)
+*Expert verification pass with detailed reasoning*
+
 ## Features
 
 - **AI Analysis** — Claude analyzes SPF/DKIM/DMARC failures, domain spoofing, urgency tactics, and suspicious URLs
